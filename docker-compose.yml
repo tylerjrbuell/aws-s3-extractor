@@ -1,0 +1,10 @@
+version: '2.1'
+services:
+  s3-extract-cli:
+    build: .
+    container_name: s3-extractor
+    working_dir: /aws-s3
+    stdin_open: true
+    volumes:
+      - .:/aws-s3
+      - ./aws-config:/root/.aws/
