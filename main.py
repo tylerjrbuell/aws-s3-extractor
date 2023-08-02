@@ -1,13 +1,31 @@
 import boto3
-import os
+import os, json
 from tqdm import tqdm
 from shutil import make_archive
+
+# Init s3 resource
+global s3
+
+#set output directory
+OUTPUT_DIR = 'Extractions'
+#set base directory
+BASE_DIR = os.path.join(os.path.abspath(os.curdir),OUTPUT_DIR)
 
 def confirm(prompt):
     answer = ""
     while answer not in ["y", "n"]:
         answer = input(prompt).lower()
     return answer == "y"
+
+def test_aws_credentials():
+    user = os.popen('aws iam get-user').read()
+    try:
+        user = json.loads(user)['User']
+        print(f'\nLogged in as: {user.get("UserName")} \nToken Tags: {", ".join([tag.get("Value") for tag in user.get("Tags")])}')
+        return user
+    except:
+        print(f'\nFailed to authenticate using stored credentials')
+        return {}
 
 #Set AWS cli config
 def aws_login():
@@ -17,30 +35,25 @@ def aws_login():
     Returns:
         boolean: status of login
     """
+    config_attempts = 0
     if(not os.path.exists('./aws-config/credentials')):
-        while not os.path.exists('./aws-config/credentials'):
+        while not os.path.exists('./aws-config/credentials') and config_attempts < 3:
             print('\n|-----⚙️  AWS Configuration⚙️-----|\n')
-            os.system('aws configure')
-        return True
+            try:
+                config_attempts += 1
+                status = os.system('aws configure')
+                if(status == 0): return True
+            except Exception as e:
+                print(e)
+                return False
+        print('Failed to properly store credentials after several attemps, exiting...')
+        return False
     print('\nCongrats you have pre-configured credentials 🔥👏\n')
     os.system('aws configure list')
     if confirm('\nWould you like to logout and re-setup your configuration? [Y/N] -> '):
         os.unlink('./aws-config/credentials')
-        aws_login()
+        if(aws_login()): return True
     return True
-
-#Authenticate
-aws_login()
-
-# Init s3 resource
-s3 = boto3.resource('s3')
-
-#set output directory
-output_dir = 'Extractions'
-
-#set base directory
-base_dir = os.path.join(os.path.abspath(os.curdir),output_dir)
-
 
 
 def extract_bucket_contents(bucket_name,folder_name):
@@ -54,8 +67,8 @@ def extract_bucket_contents(bucket_name,folder_name):
     objects = bucket.objects.filter(Prefix=folder_name)
     total_objects = sum(1 for _ in objects)
     if total_objects > 0:
-        os.makedirs(f'{base_dir}/{bucket_name}/{folder_name}',exist_ok=True)
-        os.chdir(f'{base_dir}/{bucket_name}/{folder_name}')
+        os.makedirs(f'{BASE_DIR}/{bucket_name}/{folder_name}',exist_ok=True)
+        os.chdir(f'{BASE_DIR}/{bucket_name}/{folder_name}')
         print(f'\nExtracting {total_objects} object(s) from s3://{bucket_name}/{folder_name}...\n')
         with tqdm(total=total_objects,ncols=100,desc="Download Progress") as pbar:
             for obj in objects:
@@ -64,9 +77,9 @@ def extract_bucket_contents(bucket_name,folder_name):
                 if filename:
                     if not os.path.exists(filename):
                         bucket.download_file(obj.key,filename)
-        os.chdir(base_dir)
+        os.chdir(BASE_DIR)
         if confirm("\nWould you also like to compress the bucket contents to a zip file? [Y/N] -> "):
-            print(f'\nWriting zip file {os.path.join(base_dir,bucket_name)}.zip...')
+            print(f'\nWriting zip file {os.path.join(BASE_DIR,bucket_name)}.zip...')
             make_archive(bucket_name,'zip',os.path.join(os.curdir,bucket_name))
     else:
         print(f'\nNo objects found at the given location: s3://{bucket_name}/{folder_name}')
@@ -102,5 +115,10 @@ def main():
     
 
 if __name__ == '__main__':
-    main()
+    #Authenticate
+    login = aws_login()
+    user = test_aws_credentials()
+    if(login and user.get('UserName')):
+        s3 = boto3.resource('s3')
+        main()
 
