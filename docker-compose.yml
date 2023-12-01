@@ -1,4 +1,4 @@
-version: '2.1'
+version: "2.1"
 services:
   s3-extract-cli:
     build: .
@@ -8,3 +8,4 @@ services:
     volumes:
       - .:/aws-s3
       - ./aws-config:/root/.aws/
+    image: tylerbuell/aws-s3-extractor

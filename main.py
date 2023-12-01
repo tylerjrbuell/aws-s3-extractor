@@ -83,6 +83,7 @@ def extract_bucket_contents(bucket_name, folder_name):
                 if filename:
                     if not os.path.exists(filename):
                         bucket.download_file(obj.key, filename)
+        print('\nExtraction completed successfully! 🥳')
         os.chdir(BASE_DIR)
         if confirm("\nWould you also like to compress the bucket contents to a zip file? [Y/N] -> "):
             print(
