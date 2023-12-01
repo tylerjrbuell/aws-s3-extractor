@@ -1,6 +1,6 @@
 FROM python:3.8-slim-buster
 WORKDIR /aws-s3
-
+COPY main.py .
 COPY requirements.txt .
 #Install Amazon sdk
 RUN pip install -r requirements.txt
