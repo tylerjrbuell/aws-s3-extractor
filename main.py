@@ -59,17 +59,22 @@ def is_sso_session_valid(cache_file):
                 return True
     return False
 
-def check_profile(profile_name):
+def check_profile_exists(profile_name, check_sso=False):
     """Check if the profile is already configured in AWS CLI."""
     try:
         # Use AWS CLI to check if the profile is configured
         result = subprocess.run(
             f"aws configure list --profile {profile_name}", shell=True, capture_output=True, text=True
         )
-        if result.returncode == 0:
-            return True
+        
+        if(check_sso):
+            if result.returncode == 0:
+                return True
+            else:
+                return False
         else:
-            return False
+            return f'profile {profile_name}' in result.stdout
+        
     except subprocess.CalledProcessError as e:
         print(f"Error checking profile: {e}")
         return False
@@ -125,7 +130,7 @@ def configure_credentials(login_method='iam', profile_name=None) -> boto3.Sessio
     session = None
     print('\n|-----⚙️  AWS Credentials Configuration⚙️-----|\n')
     if login_method == 'iam':
-        if profile_name and check_profile(profile_name):
+        if profile_name and check_profile_exists(profile_name):
             session = boto3.Session(profile_name=profile_name)
         else:
             configure_iam_profile(profile_name=profile_name or 'default')
@@ -138,10 +143,10 @@ def configure_credentials(login_method='iam', profile_name=None) -> boto3.Sessio
         )
         print('Checking for valid SSO session...')
         cache_file = get_sso_cache_file()
-        if(is_sso_session_valid(cache_file) and check_profile(profile_name)):
+        if(check_profile_exists(profile_name, check_sso=True)):
             print("SSO session is still valid for this profile. Using cached credentials.")
             session = boto3.Session(profile_name=profile_name)
-        elif profile_name and check_profile(profile_name):
+        elif check_profile_exists(profile_name):
             print('SSO session is not valid. Re-logging in...')
             # Trigger SSO login using AWS CLI
             if login_with_sso(profile_name):
@@ -151,7 +156,7 @@ def configure_credentials(login_method='iam', profile_name=None) -> boto3.Sessio
         else:
             print(f"SSO profile '{profile_name}' is not configured.")
             configure_sso_profile(profile_name)
-            if(check_profile(profile_name)):
+            if(check_profile_exists(profile_name)):
                 session = boto3.Session(profile_name=profile_name)
     else:
         print("Invalid login method specified.")
@@ -214,8 +219,9 @@ def extract_bucket_contents(bucket_name, folder_name):
             with concurrent.futures.ThreadPoolExecutor(max_workers=int(max_workers)) as executor:
                 for obj in objects:
                     futures.append(executor.submit(bucket.download_file, obj.key, obj.key.split('/')[-1]))
+                    pbar.update(0.5)
                 for future in concurrent.futures.as_completed(futures):
-                    pbar.update(1)
+                    pbar.update(0.5)
         print('\nExtraction completed successfully! 🥳')
         os.chdir(BASE_DIR)
         if confirm("\nWould you also like to compress the bucket contents to a zip file? [Y/N] -> "):
@@ -248,11 +254,12 @@ def get_s3_target():
 def main():
     global S3
     print("\n\n|------🪣  S3 Bucket Extractor🪣------|\n")
-    session = aws_login()
-    if (session):
-        S3 = session.resource('s3')
-    else:
-        main()
+    if(not S3):
+        session = aws_login()
+        if (session):
+            S3 = session.resource('s3')
+        else:
+            main()
     try:
         while True:
             bucket_name, folder_name = get_s3_target()
@@ -264,4 +271,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('\n\nExiting S3 Bucket Extractor...')
+        sys.exit(0)
